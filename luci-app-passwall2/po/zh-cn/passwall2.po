@@ -472,6 +472,15 @@ msgstr "当使用时，本机将首先连接到此节点，然后再使用此节
 msgid "Domain Strategy"
 msgstr "域名解析策略"
 
+msgid "Detected JSON subscription format, parsing outbounds..."
+msgstr "检测到JSON订阅格式，正在解析出站配置..."
+
+msgid "No valid nodes found in JSON subscription for [%s]"
+msgstr "在 [%s] JSON订阅中未找到有效节点"
+
+msgid "DNS Hijacking"
+msgstr "DNS劫持"
+
 msgid "Domain matcher"
 msgstr "域名匹配算法"
 
