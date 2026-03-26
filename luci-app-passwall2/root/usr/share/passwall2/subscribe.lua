@@ -1608,7 +1608,7 @@ local function processData(szType, content, add_mode, group, sub_cfg)
 end
 
 -- Handle JSON format subscriptions (anytls protocol support)
-local function process_json_subscription(content, group_name)
+local function process_json_subscription(content, group_name, add_mode_val)
 	local nodes = {}
 
 	-- Parse JSON content
@@ -1631,7 +1631,7 @@ local function process_json_subscription(content, group_name)
 		elseif string.lower(outbound.type) == "anytls" then
 			local result = {
 				timeout = 60,
-				add_mode = 1, -- import mode
+				add_mode = add_mode_val,
 				group = group_name,
 				type = 'sing-box',
 				protocol = "anytls",
@@ -1661,8 +1661,6 @@ local function process_json_subscription(content, group_name)
 			else
 				result.reality = "0"
 			end
-
-			result.domain_strategy = "ipv4_only"
 
 			-- Validate and add to nodes list
 			if result.address ~= "" and result.address ~= "127.0.0.1" then
@@ -2069,7 +2067,7 @@ local function parse_link(raw, add_mode, group, sub_cfg)
 			if ok and json_data and (json_data.outbounds or json_data.inbounds) then
 				-- This is a valid JSON subscription (sing-box format)
 				log(2, i18n.translatef("Detected JSON subscription format, parsing outbounds..."))
-				node_list = process_json_subscription(trimmed_raw, group)
+				node_list = process_json_subscription(trimmed_raw, group, add_mode)
 				if #node_list > 0 then
 					nodeResult[#nodeResult + 1] = {
 						remark = group,
