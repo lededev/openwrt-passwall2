@@ -131,7 +131,7 @@ do
 	if true then
 		local szType = "@global[0]"
 		local option = "node"
-		
+
 		local node_id = uci:get(appname, szType, option)
 		CONFIG[#CONFIG + 1] = {
 			log = true,
@@ -290,7 +290,7 @@ do
 						end
 					}
 				end
-				
+
 			end
 		elseif node.protocol and node.protocol == '_balancing' then
 			local flag = i18n.translatef("Xray Load Balancing node [%s] list", node_id)
@@ -526,7 +526,7 @@ local function processData(szType, content, add_mode, group, sub_cfg)
 		result.protocol = hostInfo[#hostInfo-3]
 		result.method = hostInfo[#hostInfo-2]
 		result.obfs = hostInfo[#hostInfo-1]
-		result.password = base64Decode(hostInfo[#hostInfo])	
+		result.password = base64Decode(hostInfo[#hostInfo])
 		local params = {}
 		for _, v in pairs(split(dat[2], '&')) do
 			local s = v:find("=", 1, true)
@@ -562,7 +562,7 @@ local function processData(szType, content, add_mode, group, sub_cfg)
 
 		if not info.net then info.net = "tcp" end
 		info.net = string.lower(info.net)
-		if result.type == "sing-box" and info.net == "raw" then 
+		if result.type == "sing-box" and info.net == "raw" then
 			info.net = "tcp"
 		elseif result.type == "Xray" and info.net == "tcp" then
 			info.net = "raw"
@@ -823,7 +823,7 @@ local function processData(szType, content, add_mode, group, sub_cfg)
 
 			if params.type then
 				params.type = string.lower(params.type)
-				if result.type == "sing-box" and params.type == "raw" then 
+				if result.type == "sing-box" and params.type == "raw" then
 					params.type = "tcp"
 				elseif result.type == "Xray" and params.type == "tcp" then
 					params.type = "raw"
@@ -988,7 +988,7 @@ local function processData(szType, content, add_mode, group, sub_cfg)
 			log(2, i18n.translatef("Skipping the %s node is due to incompatibility with the %s core program or incorrect node usage type settings.", "Trojan", "Trojan"))
 			return nil
 		end
-		
+
 		local alias = ""
 		if content:find("#") then
 			local idx_sp = content:find("#")
@@ -1035,7 +1035,7 @@ local function processData(szType, content, add_mode, group, sub_cfg)
 
 			if not params.type then params.type = "tcp" end
 			params.type = string.lower(params.type)
-			if result.type == "sing-box" and params.type == "raw" then 
+			if result.type == "sing-box" and params.type == "raw" then
 				params.type = "tcp"
 			elseif result.type == "Xray" and params.type == "tcp" then
 				params.type = "raw"
@@ -1176,7 +1176,7 @@ local function processData(szType, content, add_mode, group, sub_cfg)
 			if ({ xhttp=true, kcp=true, mkcp=true })[params.type] and result.type ~= "Xray" and has_xray then
 				result.type = "Xray"
 			end
-			if result.type == "sing-box" and params.type == "raw" then 
+			if result.type == "sing-box" and params.type == "raw" then
 				params.type = "tcp"
 			elseif result.type == "Xray" and params.type == "tcp" then
 				params.type = "raw"
@@ -1607,6 +1607,279 @@ local function processData(szType, content, add_mode, group, sub_cfg)
 	return result
 end
 
+-- Handle JSON format subscriptions (sing-box outbound format)
+local function process_json_subscription(content)
+	local nodes = {}
+
+	-- Parse JSON content
+	local ok, data = pcall(jsonParse, content)
+	if not ok or not data then
+		log(2, i18n.translatef("Failed to parse JSON subscription content"))
+		return nodes
+	end
+
+	-- Check if outbounds array exists
+	if not data.outbounds or type(data.outbounds) ~= "table" then
+		log(2, i18n.translatef("No outbounds found in JSON subscription"))
+		return nodes
+	end
+
+	-- Process each outbound configuration
+	for _, outbound in ipairs(data.outbounds) do
+		if not outbound.type then
+			goto continue
+		end
+
+		local result = {
+			timeout = 60,
+			add_mode = 1, -- import mode
+			group = "json"
+		}
+
+		local protocol_type = string.lower(outbound.type or "")
+		local remarks = outbound.tag or outbound.server or "NULL"
+
+		if protocol_type == "anytls" then
+			if not has_singbox then
+				log(2, i18n.translatef("Skip the %s node because the %s core program is not installed.", "AnyTLS", "Sing-Box 1.12"))
+				goto continue
+			end
+
+			result.type = 'sing-box'
+			result.protocol = "anytls"
+			result.address = outbound.server or ""
+			result.port = outbound.server_port or 443
+			result.password = outbound.password or ""
+			result.remarks = remarks
+
+			-- Handle TLS configuration
+			if outbound.tls and type(outbound.tls) == "table" then
+				if outbound.tls.enabled then
+					result.tls = "1"
+					result.tls_serverName = outbound.tls.server_name or ""
+					result.alpn = outbound.tls.alpn or "default"
+
+					-- Default values for TLS
+					result.tls_allowInsecure = allowInsecure_default and "1" or "0"
+					result.utls = "1"
+					result.fingerprint = "chrome"
+				else
+					result.tls = "0"
+				end
+			else
+				result.tls = "0"
+			end
+
+			-- Handle reality configuration
+			if outbound.tls and outbound.tls.reality then
+				result.reality = "1"
+				result.reality_publicKey = outbound.tls.reality.public_key or ""
+				result.reality_shortId = outbound.tls.reality.short_id or ""
+			else
+				result.reality = "0"
+			end
+
+			-- Set domain strategy
+			result.domain_strategy = "ipv4_only"
+
+		elseif protocol_type == "tuic" then
+			if not has_singbox then
+				log(2, i18n.translatef("Skip the %s node because the %s core program is not installed.", "Tuic", "Sing-Box"))
+				goto continue
+			end
+
+			result.type = 'sing-box'
+			result.protocol = "tuic"
+			result.address = outbound.server or ""
+			result.port = outbound.server_port or 443
+			result.uuid = outbound.uuid or ""
+			result.password = outbound.password or ""
+			result.remarks = remarks
+
+			-- Handle TLS configuration
+			if outbound.tls and type(outbound.tls) == "table" then
+				result.tls = outbound.tls.enabled and "1" or "0"
+				result.tls_serverName = outbound.tls.server_name or ""
+				result.tls_allowInsecure = allowInsecure_default and "1" or "0"
+				result.tuic_alpn = outbound.tls.alpn or "default"
+			else
+				result.tls = "0"
+				result.tuic_alpn = "default"
+			end
+
+			result.tuic_congestion_control = outbound.congestion_control or "cubic"
+			result.tuic_udp_relay_mode = outbound.udp_relay_mode or "native"
+
+		elseif protocol_type == "hysteria2" then
+			if not has_singbox then
+				log(2, i18n.translatef("Skip the %s node because the %s core program is not installed.", "Hysteria2", "Sing-Box"))
+				goto continue
+			end
+
+			result.type = 'sing-box'
+			result.protocol = "hysteria2"
+			result.address = outbound.server or ""
+			result.port = outbound.server_port or 443
+			result.password = outbound.password or ""
+			result.remarks = remarks
+
+			-- Handle TLS configuration
+			if outbound.tls and type(outbound.tls) == "table" then
+				result.tls = outbound.tls.enabled and "1" or "0"
+				result.tls_serverName = outbound.tls.server_name or ""
+				result.tls_allowInsecure = allowInsecure_default and "1" or "0"
+				result.alpn = outbound.tls.alpn or {}
+			else
+				result.tls = "0"
+			end
+
+			result.hysteria2_obfs = outbound.obfs and outbound.obfs.type or nil
+			result.hysteria2_obfs_password = outbound.obfs and outbound.obfs.password or nil
+
+		elseif protocol_type == "shadowsocks" then
+			result = set_ss_implementation(result)
+			if not result then
+				goto continue
+			end
+
+			result.address = outbound.server or ""
+			result.port = outbound.server_port or 8388
+			result.method = outbound.method or "aes-256-gcm"
+			result.password = outbound.password or ""
+			result.remarks = remarks
+
+			-- Plugin support
+			if outbound.plugin then
+				result.plugin = outbound.plugin.type or ""
+				result.plugin_opts = outbound.plugin.opts or ""
+			end
+
+		elseif protocol_type == "vmess" then
+			if vmess_type_default == "sing-box" and has_singbox then
+				result.type = 'sing-box'
+			elseif vmess_type_default == "xray" and has_xray then
+				result.type = "Xray"
+			else
+				log(2, i18n.translatef("Skipping the %s node is due to incompatibility with the %s core program or incorrect node usage type settings.", "VMess", "VMess"))
+				goto continue
+			end
+
+			result.protocol = "vmess"
+			result.address = outbound.server or ""
+			result.port = outbound.server_port or 443
+			result.uuid = outbound.uuid or ""
+			result.alter_id = outbound.alter_id or 0
+			result.remarks = remarks
+
+			-- Network and transport settings
+			local net_type = string.lower(outbound.net or "tcp")
+			result.transport = net_type
+
+			if net_type == "ws" then
+				result.ws_host = outbound.host or ""
+				result.ws_path = outbound.path or "/"
+			elseif net_type == "h2" or net_type == "http" then
+				result.transport = "http"
+				result.http_host = outbound.host and { outbound.host } or nil
+				result.http_path = outbound.path or "/"
+			end
+
+			-- TLS settings
+			if outbound.tls then
+				result.tls = "1"
+				result.tls_serverName = outbound.tls_host or outbound.host or ""
+				result.tls_allowInsecure = allowInsecure_default and "1" or "0"
+			else
+				result.tls = "0"
+			end
+
+		elseif protocol_type == "vless" then
+			if vless_type_default == "sing-box" and has_singbox then
+				result.type = 'sing-box'
+			elseif vless_type_default == "xray" and has_xray then
+				result.type = "Xray"
+			else
+				log(2, i18n.translatef("Skipping the %s node is due to incompatibility with the %s core program or incorrect node usage type settings.", "VLESS", "VLESS"))
+				goto continue
+			end
+
+			result.protocol = "vless"
+			result.address = outbound.server or ""
+			result.port = outbound.server_port or 443
+			result.uuid = outbound.uuid or ""
+			result.remarks = remarks
+
+			-- Network and transport settings
+			local net_type = string.lower(outbound.net or "tcp")
+			result.transport = net_type
+
+			if net_type == "ws" then
+				result.ws_host = outbound.host or ""
+				result.ws_path = outbound.path or "/"
+			elseif net_type == "h2" or net_type == "http" then
+				result.transport = "http"
+				result.http_host = outbound.host and { outbound.host } or nil
+				result.http_path = outbound.path or "/"
+			end
+
+			result.encryption = outbound.encryption or "none"
+
+			-- TLS settings
+			if outbound.tls then
+				result.tls = "1"
+				result.tls_serverName = outbound.tls_host or outbound.host or ""
+				result.tls_allowInsecure = allowInsecure_default and "1" or "0"
+			else
+				result.tls = "0"
+			end
+
+		elseif protocol_type == "trojan" then
+			if trojan_type_default == "sing-box" and has_singbox then
+				result.type = 'sing-box'
+			elseif trojan_type_default == "xray" and has_xray then
+				result.type = "Xray"
+			else
+				log(2, i18n.translatef("Skipping the %s node is due to incompatibility with the %s core program or incorrect node usage type settings.", "Trojan", "Trojan"))
+				goto continue
+			end
+
+			result.protocol = "trojan"
+			result.address = outbound.server or ""
+			result.port = outbound.server_port or 443
+			result.password = outbound.password or ""
+			result.remarks = remarks
+
+			-- Network and transport settings
+			local net_type = string.lower(outbound.net or "tcp")
+			result.transport = net_type
+
+			if net_type == "ws" then
+				result.ws_host = outbound.host or ""
+				result.ws_path = outbound.path or "/"
+			end
+
+			-- TLS settings
+			result.tls = "1"
+			result.tls_serverName = outbound.tls_host or outbound.host or ""
+			result.tls_allowInsecure = allowInsecure_default and "1" or "0"
+		else
+			log(2, i18n.translatef("Unsupported protocol type in JSON: %s, skip this node.", protocol_type))
+			goto continue
+		end
+
+		-- Validate and add to nodes list
+		if not result.address or result.address == "" or result.remarks == "NULL" or result.address == "127.0.0.1" then
+			log(2, i18n.translatef("Discard filter nodes: %s type node %s", result.type or "unknown", result.remarks))
+		else
+			tinsert(nodes, result)
+		end
+
+		::continue::
+	end
+
+	return nodes
+end
+
 local function curl(url, file, ua, mode)
 	if not url or url == "" then return 404 end
 	local curl_args = {
@@ -1930,7 +2203,7 @@ local function update_node(manual)
 							uci:set(appname, cfgid, "chain_proxy", "2")
 							uci:set(appname, cfgid, "to_node", to_node_group)
 						end
-					end		
+					end
 				end
 			end
 		end
@@ -1992,6 +2265,28 @@ local function parse_link(raw, add_mode, group, sub_cfg)
 		end
 		local nodes, szType
 		local node_list = {}
+		-- Check if content is JSON format
+		local trimmed_raw = api.trim(raw)
+		if trimmed_raw:match("^%s*{.*}%s*$") or trimmed_raw:match("^%s*%[.*%]%s*$") then
+			-- Try to parse as JSON
+			local ok, json_data = pcall(jsonParse, trimmed_raw)
+			if ok and json_data and (json_data.outbounds or json_data.inbounds) then
+				-- This is a valid JSON subscription (sing-box format)
+				log(2, i18n.translatef("Detected JSON subscription format, parsing outbounds..."))
+				node_list = process_json_subscription(trimmed_raw)
+				if #node_list > 0 then
+					nodeResult[#nodeResult + 1] = {
+						remark = group,
+						list = node_list
+					}
+					log(2, i18n.translatef("Successfully resolved the [%s] node, number: %s", group, #node_list))
+				else
+					log(2, i18n.translatef("No valid nodes found in JSON subscription for [%s]", group))
+				end
+				return
+			end
+		end
+
 		-- ssd appear to be in this format, starting with ssd://.
 		if raw:find('ssd://') then
 			szType = 'ssd'
