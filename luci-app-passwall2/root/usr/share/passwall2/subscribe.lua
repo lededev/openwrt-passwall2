@@ -1607,8 +1607,8 @@ local function processData(szType, content, add_mode, group, sub_cfg)
 	return result
 end
 
--- Handle JSON format subscriptions (sing-box outbound format)
-local function process_json_subscription(content)
+-- Handle JSON format subscriptions (anytls protocol support)
+local function process_json_subscription(content, group_name)
 	local nodes = {}
 
 	-- Parse JSON content
@@ -1626,46 +1626,29 @@ local function process_json_subscription(content)
 
 	-- Process each outbound configuration
 	for _, outbound in ipairs(data.outbounds) do
-		if not outbound.type then
-			goto continue
-		end
-
-		local result = {
-			timeout = 60,
-			add_mode = 1, -- import mode
-			group = "json"
-		}
-
-		local protocol_type = string.lower(outbound.type or "")
-		local remarks = outbound.tag or outbound.server or "NULL"
-
-		if protocol_type == "anytls" then
-			if not has_singbox then
-				log(2, i18n.translatef("Skip the %s node because the %s core program is not installed.", "AnyTLS", "Sing-Box 1.12"))
-				goto continue
-			end
-
-			result.type = 'sing-box'
-			result.protocol = "anytls"
-			result.address = outbound.server or ""
-			result.port = outbound.server_port or 443
-			result.password = outbound.password or ""
-			result.remarks = remarks
+		if not outbound.type or not outbound.server then
+			log(2, i18n.translatef("Invalid outbound: missing type or server"))
+		elseif string.lower(outbound.type) == "anytls" then
+			local result = {
+				timeout = 60,
+				add_mode = 1, -- import mode
+				group = group_name,
+				type = 'sing-box',
+				protocol = "anytls",
+				address = outbound.server or "",
+				port = outbound.server_port or 443,
+				password = outbound.password or "",
+				remarks = outbound.tag or outbound.server or "NULL"
+			}
 
 			-- Handle TLS configuration
 			if outbound.tls and type(outbound.tls) == "table" then
-				if outbound.tls.enabled then
-					result.tls = "1"
-					result.tls_serverName = outbound.tls.server_name or ""
-					result.alpn = outbound.tls.alpn or "default"
-
-					-- Default values for TLS
-					result.tls_allowInsecure = allowInsecure_default and "1" or "0"
-					result.utls = "1"
-					result.fingerprint = "chrome"
-				else
-					result.tls = "0"
-				end
+				result.tls = outbound.tls.enabled and "1" or "0"
+				result.tls_serverName = outbound.tls.server_name or ""
+				result.alpn = outbound.tls.alpn or "default"
+				result.tls_allowInsecure = allowInsecure_default and "1" or "0"
+				result.utls = "1"
+				result.fingerprint = "chrome"
 			else
 				result.tls = "0"
 			end
@@ -1679,202 +1662,15 @@ local function process_json_subscription(content)
 				result.reality = "0"
 			end
 
-			-- Set domain strategy
 			result.domain_strategy = "ipv4_only"
 
-		elseif protocol_type == "tuic" then
-			if not has_singbox then
-				log(2, i18n.translatef("Skip the %s node because the %s core program is not installed.", "Tuic", "Sing-Box"))
-				goto continue
+			-- Validate and add to nodes list
+			if result.address ~= "" and result.address ~= "127.0.0.1" then
+				tinsert(nodes, result)
 			end
-
-			result.type = 'sing-box'
-			result.protocol = "tuic"
-			result.address = outbound.server or ""
-			result.port = outbound.server_port or 443
-			result.uuid = outbound.uuid or ""
-			result.password = outbound.password or ""
-			result.remarks = remarks
-
-			-- Handle TLS configuration
-			if outbound.tls and type(outbound.tls) == "table" then
-				result.tls = outbound.tls.enabled and "1" or "0"
-				result.tls_serverName = outbound.tls.server_name or ""
-				result.tls_allowInsecure = allowInsecure_default and "1" or "0"
-				result.tuic_alpn = outbound.tls.alpn or "default"
-			else
-				result.tls = "0"
-				result.tuic_alpn = "default"
-			end
-
-			result.tuic_congestion_control = outbound.congestion_control or "cubic"
-			result.tuic_udp_relay_mode = outbound.udp_relay_mode or "native"
-
-		elseif protocol_type == "hysteria2" then
-			if not has_singbox then
-				log(2, i18n.translatef("Skip the %s node because the %s core program is not installed.", "Hysteria2", "Sing-Box"))
-				goto continue
-			end
-
-			result.type = 'sing-box'
-			result.protocol = "hysteria2"
-			result.address = outbound.server or ""
-			result.port = outbound.server_port or 443
-			result.password = outbound.password or ""
-			result.remarks = remarks
-
-			-- Handle TLS configuration
-			if outbound.tls and type(outbound.tls) == "table" then
-				result.tls = outbound.tls.enabled and "1" or "0"
-				result.tls_serverName = outbound.tls.server_name or ""
-				result.tls_allowInsecure = allowInsecure_default and "1" or "0"
-				result.alpn = outbound.tls.alpn or {}
-			else
-				result.tls = "0"
-			end
-
-			result.hysteria2_obfs = outbound.obfs and outbound.obfs.type or nil
-			result.hysteria2_obfs_password = outbound.obfs and outbound.obfs.password or nil
-
-		elseif protocol_type == "shadowsocks" then
-			result = set_ss_implementation(result)
-			if not result then
-				goto continue
-			end
-
-			result.address = outbound.server or ""
-			result.port = outbound.server_port or 8388
-			result.method = outbound.method or "aes-256-gcm"
-			result.password = outbound.password or ""
-			result.remarks = remarks
-
-			-- Plugin support
-			if outbound.plugin then
-				result.plugin = outbound.plugin.type or ""
-				result.plugin_opts = outbound.plugin.opts or ""
-			end
-
-		elseif protocol_type == "vmess" then
-			if vmess_type_default == "sing-box" and has_singbox then
-				result.type = 'sing-box'
-			elseif vmess_type_default == "xray" and has_xray then
-				result.type = "Xray"
-			else
-				log(2, i18n.translatef("Skipping the %s node is due to incompatibility with the %s core program or incorrect node usage type settings.", "VMess", "VMess"))
-				goto continue
-			end
-
-			result.protocol = "vmess"
-			result.address = outbound.server or ""
-			result.port = outbound.server_port or 443
-			result.uuid = outbound.uuid or ""
-			result.alter_id = outbound.alter_id or 0
-			result.remarks = remarks
-
-			-- Network and transport settings
-			local net_type = string.lower(outbound.net or "tcp")
-			result.transport = net_type
-
-			if net_type == "ws" then
-				result.ws_host = outbound.host or ""
-				result.ws_path = outbound.path or "/"
-			elseif net_type == "h2" or net_type == "http" then
-				result.transport = "http"
-				result.http_host = outbound.host and { outbound.host } or nil
-				result.http_path = outbound.path or "/"
-			end
-
-			-- TLS settings
-			if outbound.tls then
-				result.tls = "1"
-				result.tls_serverName = outbound.tls_host or outbound.host or ""
-				result.tls_allowInsecure = allowInsecure_default and "1" or "0"
-			else
-				result.tls = "0"
-			end
-
-		elseif protocol_type == "vless" then
-			if vless_type_default == "sing-box" and has_singbox then
-				result.type = 'sing-box'
-			elseif vless_type_default == "xray" and has_xray then
-				result.type = "Xray"
-			else
-				log(2, i18n.translatef("Skipping the %s node is due to incompatibility with the %s core program or incorrect node usage type settings.", "VLESS", "VLESS"))
-				goto continue
-			end
-
-			result.protocol = "vless"
-			result.address = outbound.server or ""
-			result.port = outbound.server_port or 443
-			result.uuid = outbound.uuid or ""
-			result.remarks = remarks
-
-			-- Network and transport settings
-			local net_type = string.lower(outbound.net or "tcp")
-			result.transport = net_type
-
-			if net_type == "ws" then
-				result.ws_host = outbound.host or ""
-				result.ws_path = outbound.path or "/"
-			elseif net_type == "h2" or net_type == "http" then
-				result.transport = "http"
-				result.http_host = outbound.host and { outbound.host } or nil
-				result.http_path = outbound.path or "/"
-			end
-
-			result.encryption = outbound.encryption or "none"
-
-			-- TLS settings
-			if outbound.tls then
-				result.tls = "1"
-				result.tls_serverName = outbound.tls_host or outbound.host or ""
-				result.tls_allowInsecure = allowInsecure_default and "1" or "0"
-			else
-				result.tls = "0"
-			end
-
-		elseif protocol_type == "trojan" then
-			if trojan_type_default == "sing-box" and has_singbox then
-				result.type = 'sing-box'
-			elseif trojan_type_default == "xray" and has_xray then
-				result.type = "Xray"
-			else
-				log(2, i18n.translatef("Skipping the %s node is due to incompatibility with the %s core program or incorrect node usage type settings.", "Trojan", "Trojan"))
-				goto continue
-			end
-
-			result.protocol = "trojan"
-			result.address = outbound.server or ""
-			result.port = outbound.server_port or 443
-			result.password = outbound.password or ""
-			result.remarks = remarks
-
-			-- Network and transport settings
-			local net_type = string.lower(outbound.net or "tcp")
-			result.transport = net_type
-
-			if net_type == "ws" then
-				result.ws_host = outbound.host or ""
-				result.ws_path = outbound.path or "/"
-			end
-
-			-- TLS settings
-			result.tls = "1"
-			result.tls_serverName = outbound.tls_host or outbound.host or ""
-			result.tls_allowInsecure = allowInsecure_default and "1" or "0"
 		else
-			log(2, i18n.translatef("Unsupported protocol type in JSON: %s, skip this node.", protocol_type))
-			goto continue
+			log(2, i18n.translatef("Unsupported protocol type: %s, skip this node.", outbound.type))
 		end
-
-		-- Validate and add to nodes list
-		if not result.address or result.address == "" or result.remarks == "NULL" or result.address == "127.0.0.1" then
-			log(2, i18n.translatef("Discard filter nodes: %s type node %s", result.type or "unknown", result.remarks))
-		else
-			tinsert(nodes, result)
-		end
-
-		::continue::
 	end
 
 	return nodes
@@ -2273,7 +2069,7 @@ local function parse_link(raw, add_mode, group, sub_cfg)
 			if ok and json_data and (json_data.outbounds or json_data.inbounds) then
 				-- This is a valid JSON subscription (sing-box format)
 				log(2, i18n.translatef("Detected JSON subscription format, parsing outbounds..."))
-				node_list = process_json_subscription(trimmed_raw)
+				node_list = process_json_subscription(trimmed_raw, group)
 				if #node_list > 0 then
 					nodeResult[#nodeResult + 1] = {
 						remark = group,
