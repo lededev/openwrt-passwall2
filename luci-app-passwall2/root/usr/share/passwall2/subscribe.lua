@@ -1311,7 +1311,7 @@ local function processData(szType, content, add_mode, group, sub_cfg)
 			content = content:sub(0, idx_sp - 1)
 		end
 		result.remarks = UrlDecode(alias)
-		
+
 		local query = split(content:gsub("/%?", "?"), '%?')
 		local host_port = query[1]
 		local params = {}
@@ -1626,9 +1626,11 @@ local function process_json_subscription(content, group_name, add_mode_val)
 
 	-- Process each outbound configuration
 	for _, outbound in ipairs(data.outbounds) do
+		local outbound_type = string.lower(outbound.type or "")
+
 		if not outbound.type or not outbound.server then
 			log(2, i18n.translatef("Invalid outbound: missing type or server"))
-		elseif string.lower(outbound.type) == "anytls" then
+		elseif outbound_type == "anytls" then
 			local result = {
 				timeout = 60,
 				add_mode = add_mode_val,
@@ -1664,6 +1666,67 @@ local function process_json_subscription(content, group_name, add_mode_val)
 
 			-- Validate and add to nodes list
 			if result.address ~= "" and result.address ~= "127.0.0.1" then
+				tinsert(nodes, result)
+			end
+		elseif outbound_type == "vless" then
+			-- Process VLESS configuration
+			local result = {
+				timeout = 60,
+				add_mode = add_mode_val,
+				group = group_name,
+				type = vless_type_default,
+				protocol = "vless",
+				address = outbound.server or "",
+				port = outbound.server_port or 443,
+				uuid = outbound.uuid or "",
+				remarks = outbound.tag or outbound.server or "NULL"
+			}
+
+			-- Handle flow if present
+			if outbound.flow and outbound.flow ~= "" then
+				result.flow = outbound.flow
+			end
+
+			-- Handle TLS configuration
+			if outbound.tls and type(outbound.tls) == "table" then
+				if outbound.tls.enabled then
+					result.tls = "1"
+					result.tls_serverName = outbound.tls.server_name or ""
+					result.tls_allowInsecure = outbound.tls.insecure and "1" or "0"
+
+					-- Handle uTLS configuration
+					if outbound.tls.utls and type(outbound.tls.utls) == "table" then
+						if outbound.tls.utls.enabled then
+							result.utls = "1"
+							result.fingerprint = outbound.tls.utls.fingerprint or "chrome"
+						else
+							result.utls = "0"
+						end
+					else
+						result.utls = "0"
+					end
+				else
+					result.tls = "0"
+				end
+			else
+				result.tls = "0"
+			end
+
+			-- Handle reality configuration
+			if outbound.tls and outbound.tls.reality and type(outbound.tls.reality) == "table" then
+				if outbound.tls.reality.enabled then
+					result.reality = "1"
+					result.reality_publicKey = outbound.tls.reality.public_key or ""
+					result.reality_shortId = outbound.tls.reality.short_id or ""
+				else
+					result.reality = "0"
+				end
+			else
+				result.reality = "0"
+			end
+
+			-- Validate and add to nodes list
+			if result.address ~= "" and result.address ~= "127.0.0.1" and result.uuid ~= "" then
 				tinsert(nodes, result)
 			end
 		else
