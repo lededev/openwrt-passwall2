@@ -1657,6 +1657,12 @@ msgstr "TLS 证书名称（CertName）"
 msgid "TLS is used to verify the leaf certificate name."
 msgstr "TLS 用于验证 leaf 证书的 name。"
 
+msgid "TLS Certificate (PEM)"
+msgstr "TLS 证书（PEM）"
+
+msgid "Full certificate (chain), PEM format."
+msgstr "完整证书（链），PEM 格式。"
+
 msgid "ECH Config"
 msgstr "ECH 配置"
 
@@ -2276,8 +2282,8 @@ msgstr "跳过 %s 节点，因未适配到 %s 核心程序，或未正确设置�
 msgid "Skip node: %s. Because Sing-Box does not support the %s protocol's %s transmission method, Xray needs to be used instead."
 msgstr "跳过节点：%s，因 Sing-Box 不支持 %s 协议的 %s 传输方式，需更换 Xray。"
 
-msgid "Xray unsupport %s plugin."
-msgstr "Xray 不支持 %s 插件。"
+msgid "%s unsupport SS %s plugin."
+msgstr "%s 不支持 %s 插件。"
 
 msgid "Plugin options Incomplete."
 msgstr "插件选项不完整。"
